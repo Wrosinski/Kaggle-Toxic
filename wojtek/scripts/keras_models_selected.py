@@ -48,56 +48,6 @@ def GRUCapsule(params):
     return model
 
 
-def Conv2Dmodel(params):
-
-    filter_sizes = [1, 2, 3, 5]
-    num_filters = 32
-    embed_dropout_rate = 0.1
-
-    Embedding_layer = Embedding(params['nb_words'],
-                                params['embedding_dim'],
-                                weights=[params['embedding_matrix']],
-                                input_length=params['sequence_length'],
-                                trainable=False)
-
-    input_ = Input(shape=(params['sequence_length'], ))
-    embed_input_ = Embedding_layer(input_)
-    x = SpatialDropout1D(embed_dropout_rate, name='embed_drop')(embed_input_)
-
-    x = Reshape((params['sequence_length'], params['embedding_dim'], 1))(x)
-
-    conv_0 = Conv2D(num_filters, kernel_size=(filter_sizes[0], params['embedding_dim'],), kernel_initializer='normal',
-                    activation='elu')(x)
-    conv_1 = Conv2D(num_filters, kernel_size=(filter_sizes[1], params['embedding_dim'],), kernel_initializer='normal',
-                    activation='elu')(x)
-    conv_2 = Conv2D(num_filters, kernel_size=(filter_sizes[2], params['embedding_dim'],), kernel_initializer='normal',
-                    activation='elu')(x)
-    conv_3 = Conv2D(num_filters, kernel_size=(filter_sizes[3], params['embedding_dim'],), kernel_initializer='normal',
-                    activation='elu')(x)
-
-    maxpool_0 = MaxPooling2D(pool_size=(
-        params['sequence_length'] - filter_sizes[0] + 1, 1))(conv_0)
-    maxpool_1 = MaxPooling2D(pool_size=(
-        params['sequence_length'] - filter_sizes[1] + 1, 1))(conv_1)
-    maxpool_2 = MaxPooling2D(pool_size=(
-        params['sequence_length'] - filter_sizes[2] + 1, 1))(conv_2)
-    maxpool_3 = MaxPooling2D(pool_size=(
-        params['sequence_length'] - filter_sizes[3] + 1, 1))(conv_3)
-
-    z = Concatenate(axis=1)([maxpool_0, maxpool_1, maxpool_2, maxpool_3])
-    z = Flatten()(z)
-    z = Dropout(0.1)(z)
-
-    outp = Dense(6, activation="sigmoid")(z)
-
-    model = Model(inputs=input_, outputs=outp)
-    model.compile(loss=params['loss'],
-                  optimizer='adam',
-                  metrics=['accuracy'])
-
-    return model
-
-
 def LSTMDeepmoji(params):
 
     return_attention = False
@@ -127,69 +77,6 @@ def LSTMDeepmoji(params):
 
     x = Dropout(params['dropout_rate'])(x)
     x = Dense(256, activation='relu')(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(6, activation='sigmoid')(x)
-
-    model = Model(inputs=input_, outputs=x)
-    model.compile(loss=params['loss'],
-                  optimizer=params['optimizer'],
-                  metrics=['accuracy'])
-    return model
-
-
-def LSTMbasic(params):
-
-    Embedding_layer = Embedding(params['nb_words'],
-                                params['embedding_dim'],
-                                weights=[params['embedding_matrix']],
-                                input_length=params['sequence_length'],
-                                trainable=False)
-
-    input_ = Input(shape=(params['sequence_length'], ))
-    embed_input_ = Embedding_layer(input_)
-
-    if params['bidirectional']:
-        x = Bidirectional(
-            CuDNNLSTM(params['lstm_units'],
-                      return_sequences=True))(embed_input_)
-    else:
-        x = CuDNNLSTM(params['lstm_units'],
-                      return_sequences=True)(embed_input_)
-    x = GlobalAveragePooling1D()(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(256, activation='relu')(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(6, activation='sigmoid')(x)
-
-    model = Model(inputs=input_, outputs=x)
-    model.compile(loss=params['loss'],
-                  optimizer=params['optimizer'],
-                  metrics=['accuracy'])
-    return model
-
-
-def GRUbasic(params):
-
-    Embedding_layer = Embedding(params['nb_words'],
-                                params['embedding_dim'],
-                                weights=[params['embedding_matrix']],
-                                input_length=params['sequence_length'],
-                                trainable=False)
-
-    input_ = Input(shape=(params['sequence_length'], ))
-    embed_input_ = Embedding_layer(input_)
-
-    if params['bidirectional']:
-        x = Bidirectional(
-            CuDNNGRU(params['lstm_units'],
-                     return_sequences=True))(embed_input_)
-    else:
-        x = CuDNNGRU(params['lstm_units'],
-                     return_sequences=True)(embed_input_)
-    x = GlobalAveragePooling1D()(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(256)(x)
-    x = PReLU()(x)
     x = Dropout(params['dropout_rate'])(x)
     x = Dense(6, activation='sigmoid')(x)
 
@@ -264,7 +151,7 @@ def GRUHierarchical(params):
     return model
 
 
-def LSTMmax(params):
+def GRUHierarchical2(params):
 
     Embedding_layer = Embedding(params['nb_words'],
                                 params['embedding_dim'],
@@ -275,20 +162,23 @@ def LSTMmax(params):
     input_ = Input(shape=(params['sequence_length'], ))
     embed_input_ = Embedding_layer(input_)
 
-    if params['bidirectional']:
-        x = Bidirectional(
-            CuDNNLSTM(params['lstm_units'],
-                      return_sequences=True))(embed_input_)
-    else:
-        x = CuDNNLSTM(params['lstm_units'],
-                      return_sequences=True)(embed_input_)
-    x = GlobalMaxPooling1D()(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(256, activation='relu')(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(6, activation='sigmoid')(x)
+    l_lstm = Bidirectional(
+        CuDNNGRU(params['lstm_units'], return_sequences=True))(embed_input_)
+    l_dense = TimeDistributed(Dense(256))(l_lstm)
+    l_att = GlobalMaxPooling1D()(l_dense)
+    sentEncoder = Model(input_, l_att)
 
-    model = Model(inputs=input_, outputs=x)
+    review_input = Input(shape=(1, params['sequence_length']))
+    review_encoder = TimeDistributed(sentEncoder)(review_input)
+    l_lstm_sent = Bidirectional(
+        CuDNNGRU(params['lstm_units'], return_sequences=True))(review_encoder)
+    l_dense_sent = TimeDistributed(Dense(256))(l_lstm_sent)
+    l_att = GlobalMaxPooling1D()(l_dense_sent)
+    l_att3 = AttentionWithContext()(l_dense_sent)
+    merge_layer2 = concatenate([l_att, l_att3])
+    x = Dense(6, activation='sigmoid')(merge_layer2)
+
+    model = Model(inputs=review_input, outputs=x)
     model.compile(loss=params['loss'],
                   optimizer=params['optimizer'],
                   metrics=['accuracy'])
@@ -317,40 +207,6 @@ def GRUmax(params):
     x = Dropout(params['dropout_rate'])(x)
     x = Dense(256)(x)
     x = PReLU()(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(6, activation='sigmoid')(x)
-
-    model = Model(inputs=input_, outputs=x)
-    model.compile(loss=params['loss'],
-                  optimizer=params['optimizer'],
-                  metrics=['accuracy'])
-    return model
-
-
-def LSTMconcat(params):
-
-    Embedding_layer = Embedding(params['nb_words'],
-                                params['embedding_dim'],
-                                weights=[params['embedding_matrix']],
-                                input_length=params['sequence_length'],
-                                trainable=False)
-
-    input_ = Input(shape=(params['sequence_length'], ))
-    embed_input_ = Embedding_layer(input_)
-
-    if params['bidirectional']:
-        x = Bidirectional(
-            CuDNNLSTM(params['lstm_units'],
-                      return_sequences=True))(embed_input_)
-    else:
-        x = CuDNNLSTM(params['lstm_units'],
-                      return_sequences=True)(embed_input_)
-    x1 = GlobalMaxPooling1D()(x)
-    x2 = GlobalAveragePooling1D()(x)
-    merge_layer = concatenate([x1, x2])
-
-    x = Dropout(params['dropout_rate'])(merge_layer)
-    x = Dense(256, activation='relu')(x)
     x = Dropout(params['dropout_rate'])(x)
     x = Dense(6, activation='sigmoid')(x)
 
@@ -410,7 +266,7 @@ def GRUconvconcat(params):
         x = Bidirectional(
             CuDNNGRU(params['lstm_units'],
                      return_sequences=True))(embed_input_)
-        x = Conv1D(64, kernel_size=3, padding='valid',
+        x = Conv1D(128, kernel_size=3, padding='valid',
                    kernel_initializer='glorot_uniform')(x)
     else:
         x = CuDNNGRU(params['lstm_units'],
@@ -424,7 +280,7 @@ def GRUconvconcat(params):
     # x = Dropout(params['dropout_rate'])(merge_layer)
     # x = Dense(256, activation='relu')(x)
     # x = Dropout(params['dropout_rate'])(x)
-    x = Dense(6, activation='sigmoid')(x)
+    x = Dense(6, activation='sigmoid')(merge_layer)
 
     model = Model(inputs=input_, outputs=x)
     model.compile(loss=params['loss'],
@@ -542,75 +398,6 @@ def GRUconvconcat2(params):
                   optimizer=params['optimizer'],
                   metrics=['accuracy'])
 
-    return model
-
-
-def GRUconcat3(params):
-
-    Embedding_layer = Embedding(params['nb_words'],
-                                params['embedding_dim'],
-                                weights=[params['embedding_matrix']],
-                                input_length=params['sequence_length'],
-                                trainable=False)
-
-    input_ = Input(shape=(params['sequence_length'], ))
-    embed_input_ = Embedding_layer(input_)
-
-    if params['bidirectional']:
-        x = Bidirectional(
-            CuDNNGRU(params['lstm_units'],
-                     return_sequences=True))(embed_input_)
-    else:
-        x = CuDNNGRU(params['lstm_units'],
-                     return_sequences=True)(embed_input_)
-    x1 = GlobalMaxPooling1D()(x)
-    x2 = GlobalAveragePooling1D()(x)
-    x3 = AttentionWithContext()(x)
-    x4 = Attention(params['sequence_length'])(x)
-    merge_layer = concatenate([x1, x2, x3, x4])
-
-    x = Dropout(params['dropout_rate'])(merge_layer)
-    x = Dense(256, activation='relu')(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(6, activation='sigmoid')(x)
-
-    model = Model(inputs=input_, outputs=x)
-    model.compile(loss=params['loss'],
-                  optimizer=params['optimizer'],
-                  metrics=['accuracy'])
-
-    return model
-
-
-def LSTMattention(params):
-
-    Embedding_layer = Embedding(params['nb_words'],
-                                params['embedding_dim'],
-                                weights=[params['embedding_matrix']],
-                                input_length=params['sequence_length'],
-                                trainable=False)
-
-    input_ = Input(shape=(params['sequence_length'], ))
-    embed_input_ = Embedding_layer(input_)
-
-    if params['bidirectional']:
-        x = Bidirectional(
-            CuDNNLSTM(params['lstm_units'],
-                      return_sequences=True))(embed_input_)
-    else:
-        x = CuDNNLSTM(params['lstm_units'],
-                      return_sequences=True)(embed_input_)
-    x = AttentionWithContext()(x)
-    # x = GlobalAveragePooling1D()(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(256, activation='relu')(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(6, activation='sigmoid')(x)
-
-    model = Model(inputs=input_, outputs=x)
-    model.compile(loss=params['loss'],
-                  optimizer=params['optimizer'],
-                  metrics=['accuracy'])
     return model
 
 
@@ -772,6 +559,53 @@ def GRUConvdeep3(params):
     return model
 
 
+def GRUConvdeep3V2(params):
+
+    Embedding_layer = Embedding(params['nb_words'],
+                                params['embedding_dim'],
+                                weights=[params['embedding_matrix']],
+                                input_length=params['sequence_length'],
+                                trainable=False)
+
+    input_ = Input(shape=(params['sequence_length'], ))
+    embed_input_ = Embedding_layer(input_)
+    x = Activation('tanh')(embed_input_)
+    x = SpatialDropout1D(0.1, name='embed_drop')(x)
+
+    if params['bidirectional']:
+        x_g1 = Bidirectional(
+            CuDNNGRU(params['lstm_units'],
+                     return_sequences=True))(x)
+        x_l1 = Bidirectional(
+            CuDNNLSTM(params['lstm_units'],
+                      return_sequences=True))(x_g1)
+        x_g2 = Bidirectional(
+            CuDNNGRU(params['lstm_units'],
+                     return_sequences=True))(x_l1)
+        x1 = GlobalMaxPooling1D()(x_g2)
+        x2 = GlobalAveragePooling1D()(x_g2)
+        x3 = AttentionWithContext()(x_g2)
+        merge_layer = concatenate([x1, x2, x3])
+
+        x_conv = Conv1D(64, kernel_size=3, padding='valid',
+                        kernel_initializer='glorot_uniform')(x_g2)
+        x1_conv = GlobalMaxPooling1D()(x_conv)
+        x2_conv = GlobalAveragePooling1D()(x_conv)
+        x3_conv = AttentionWithContext()(x_conv)
+
+    merge_layer2 = concatenate([x1, x2, x3, x1_conv, x2_conv, x3_conv])
+    x = Dropout(params['dropout_rate'])(merge_layer2)
+    x = Dense(256, activation='relu')(x)
+    x = Dropout(params['dropout_rate'])(x)
+    x = Dense(6, activation='sigmoid')(x)
+
+    model = Model(inputs=input_, outputs=x)
+    model.compile(loss=params['loss'],
+                  optimizer=params['optimizer'],
+                  metrics=['accuracy'])
+    return model
+
+
 def LSTMdeep(params):
 
     embed_dropout_rate = 0.1
@@ -839,7 +673,6 @@ def LSTMdeep2(params):
                       return_sequences=True,
                       kernel_initializer='he_uniform'))(x)
         x1 = GlobalMaxPooling1D()(x)
-        x2 = GlobalAveragePooling1D()(x)
         x3 = AttentionWithContext()(x)
     else:
         x = CuDNNLSTM(params['lstm_units'],
@@ -850,7 +683,7 @@ def LSTMdeep2(params):
                       kernel_initializer='he_uniform')(x)
         x = GlobalMaxPooling1D()(x)
 
-    merge_layer = concatenate([x1, x2, x3])
+    merge_layer = concatenate([x1, x3])
     x = Dropout(params['dropout_rate'])(merge_layer)
     x = Dense(256)(x)
     x = PReLU()(x)
@@ -896,7 +729,11 @@ def LSTMattentionV2(params):
     return model
 
 
-def LSTMattentionBranched(params):
+def Conv2Dmodel(params):
+
+    filter_sizes = [1, 2, 3, 5]
+    num_filters = 64
+    embed_dropout_rate = 0.1
 
     Embedding_layer = Embedding(params['nb_words'],
                                 params['embedding_dim'],
@@ -906,62 +743,39 @@ def LSTMattentionBranched(params):
 
     input_ = Input(shape=(params['sequence_length'], ))
     embed_input_ = Embedding_layer(input_)
+    x = SpatialDropout1D(embed_dropout_rate, name='embed_drop')(embed_input_)
 
-    if params['bidirectional']:
-        x = Bidirectional(
-            CuDNNLSTM(params['lstm_units'],
-                      return_sequences=True))(embed_input_)
-    else:
-        x = CuDNNLSTM(params['lstm_units'],
-                      return_sequences=True)(embed_input_)
-    x = AttentionWithContext()(x)
+    x = Reshape((params['sequence_length'], params['embedding_dim'], 1))(x)
 
-    mlp_input = Input(shape=(params['num_columns'],))
-    mlp = BatchNormalization()(mlp_input)
-    mlp = Dense(256)(mlp)
-    mlp = PReLU()(mlp)
-    mlp = BatchNormalization()(mlp)
-    mlp = Dense(256)(mlp)
-    mlp = PReLU()(mlp)
+    conv_0 = Conv2D(num_filters, kernel_size=(filter_sizes[0], params['embedding_dim'],), kernel_initializer='normal',
+                    activation='elu')(x)
+    conv_1 = Conv2D(num_filters, kernel_size=(filter_sizes[1], params['embedding_dim'],), kernel_initializer='normal',
+                    activation='elu')(x)
+    conv_2 = Conv2D(num_filters, kernel_size=(filter_sizes[2], params['embedding_dim'],), kernel_initializer='normal',
+                    activation='elu')(x)
+    conv_3 = Conv2D(num_filters, kernel_size=(filter_sizes[3], params['embedding_dim'],), kernel_initializer='normal',
+                    activation='elu')(x)
 
-    merge_layer = concatenate([x, mlp])
-    x = Dropout(0.1)(merge_layer)
-    x = Dense(256, activation='relu')(x)
-    x = Dropout(params['dropout_rate'])(x)
-    x = Dense(6, activation='sigmoid')(x)
+    maxpool_0 = MaxPooling2D(pool_size=(
+        params['sequence_length'] - filter_sizes[0] + 1, 1))(conv_0)
+    maxpool_1 = MaxPooling2D(pool_size=(
+        params['sequence_length'] - filter_sizes[1] + 1, 1))(conv_1)
+    maxpool_2 = MaxPooling2D(pool_size=(
+        params['sequence_length'] - filter_sizes[2] + 1, 1))(conv_2)
+    maxpool_3 = MaxPooling2D(pool_size=(
+        params['sequence_length'] - filter_sizes[3] + 1, 1))(conv_3)
 
-    model = Model(inputs=[input_, mlp_input], outputs=x)
+    z = Concatenate(axis=1)([maxpool_0, maxpool_1, maxpool_2, maxpool_3])
+    z = Flatten()(z)
+    z = Dropout(0.1)(z)
+
+    outp = Dense(6, activation="sigmoid")(z)
+
+    model = Model(inputs=input_, outputs=outp)
     model.compile(loss=params['loss'],
-                  optimizer=params['optimizer'],
+                  optimizer='adam',
                   metrics=['accuracy'])
-    return model
 
-
-def MLPbasic(params):
-
-    input_ = Input(shape=(params['num_columns'],), sparse=False)
-
-    x = BatchNormalization()(input_)
-    x = Dropout(0.2)(x)
-    x = Dense(256)(x)
-    x = PReLU()(x)
-
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    x = Dense(256)(x)
-    x = PReLU()(x)
-
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    x = Dense(256)(x)
-    x = PReLU()(x)
-
-    x = Dense(6, activation='sigmoid')(x)
-
-    model = Model(inputs=input_, outputs=x)
-    model.compile(loss=params['loss'],
-                  optimizer=params['optimizer'],
-                  metrics=['accuracy'])
     return model
 
 
@@ -1126,84 +940,6 @@ def Conv1DGRUbranched(params):
     x = Dense(6, activation='sigmoid')(x)
 
     model = Model(inputs=input_, outputs=x)
-    model.compile(loss=params['loss'], optimizer=params['optimizer'],
-                  metrics=['accuracy'])
-    return model
-
-
-def Conv1DLSTMbranchedV2(params):
-
-    Embedding_layer = Embedding(params['nb_words'],
-                                params['embedding_dim'],
-                                weights=[params['embedding_matrix']],
-                                input_length=params['sequence_length'],
-                                trainable=False)
-
-    input_ = Input(shape=(params['sequence_length'], ))
-    embed_input_ = Embedding_layer(input_)
-
-    conv1 = Conv1D(filters=128, kernel_size=1,
-                   padding='same', activation='relu')
-    conv2 = Conv1D(filters=128, kernel_size=2,
-                   padding='same', activation='relu')
-    conv3 = Conv1D(filters=128, kernel_size=3,
-                   padding='same', activation='relu')
-    conv4 = Conv1D(filters=128, kernel_size=4,
-                   padding='same', activation='relu')
-    conv5 = Conv1D(filters=32, kernel_size=5,
-                   padding='same', activation='relu')
-    conv6 = Conv1D(filters=32, kernel_size=6,
-                   padding='same', activation='relu')
-
-    conv1a = conv1(embed_input_)
-    glob1a = GlobalMaxPooling1D()(conv1a)
-
-    conv2a = conv2(embed_input_)
-    glob2a = GlobalMaxPooling1D()(conv2a)
-
-    conv3a = conv3(embed_input_)
-    glob3a = GlobalMaxPooling1D()(conv3a)
-
-    conv4a = conv4(embed_input_)
-    glob4a = GlobalMaxPooling1D()(conv4a)
-
-    conv5a = conv5(embed_input_)
-    glob5a = GlobalMaxPooling1D()(conv5a)
-
-    conv6a = conv6(embed_input_)
-    glob6a = GlobalMaxPooling1D()(conv6a)
-
-    if params['bidirectional']:
-        rnn_branch = Bidirectional(
-            CuDNNGRU(params['lstm_units'],
-                     return_sequences=True))(embed_input_)
-    else:
-        rnn_branch = CuDNNGRU(params['lstm_units'],
-                              return_sequences=True)(embed_input_)
-    # rnn_branch = AttentionWithContext()(rnn_branch)
-    rnn_branch = GlobalMaxPooling1D()(rnn_branch)
-
-    mlp_input = Input(shape=(params['num_columns'],))
-    mlp = BatchNormalization()(mlp_input)
-    mlp = Dense(256)(mlp)
-    mlp = PReLU()(mlp)
-    mlp = BatchNormalization()(mlp)
-    mlp = Dense(256)(mlp)
-    mlp = PReLU()(mlp)
-
-    merge_layer = concatenate([glob1a, glob2a, glob3a, glob4a, glob5a, glob6a,
-                               rnn_branch, mlp])
-
-    x = Dropout(0.2)(merge_layer)
-    x = BatchNormalization()(x)
-    x = Dense(256)(x)
-    x = PReLU()(x)
-
-    x = Dropout(0.2)(x)
-    x = BatchNormalization()(x)
-    x = Dense(6, activation='sigmoid')(x)
-
-    model = Model(inputs=[input_, mlp_input], outputs=x)
     model.compile(loss=params['loss'], optimizer=params['optimizer'],
                   metrics=['accuracy'])
     return model

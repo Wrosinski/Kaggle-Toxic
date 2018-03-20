@@ -355,13 +355,15 @@ class GBMPipeline(object):
         print('Start training with parameters: {} \n \n'.format(model_params))
 
         if stratify:
+            y_train_split = pd.DataFrame(y_train).sum(axis=1).values
             kf = StratifiedKFold(n_splits=n_folds, shuffle=self.shuffle,
                                  random_state=self.seed)
         else:
+            y_train_split = y_train
             kf = KFold(n_splits=n_folds, shuffle=self.shuffle,
                        random_state=self.seed)
 
-        for train_index, val_index in kf.split(X_train, y_train):
+        for train_index, val_index in kf.split(X_train, y_train_split):
 
             X_tr_, X_val_ = X_train.iloc[train_index,
                                          :], X_train.iloc[val_index, :]
@@ -372,11 +374,14 @@ class GBMPipeline(object):
                 print('Training model for column:', j)
                 self.prefix = '{}_{}'.format(prefix, j)
 
-                target_train_columns = pick_target_columns(X_train, col, j)
+                target_train_columns = pick_target_columns(X_train, col, j).tolist()
                 if additional_features is not None:
-                    target_train_columns.tolist().extend(additional_features.tolist())
+                    target_train_columns.extend(additional_features.tolist())
                 X_tr = X_tr_[target_train_columns]
                 X_val = X_val_[target_train_columns]
+                X_test_ = X_test[target_train_columns]
+
+                print(X_tr.shape, X_val.shape, X_test_.shape)
 
                 if self.use_lgb:
                     lgb_train = lgb.Dataset(X_tr, y_tr[j])
@@ -444,7 +449,7 @@ class GBMPipeline(object):
 
                 if self.predict_test and X_test is not None:
                     self.oof_test[:, i, self.i -
-                                  1] = self.predict_on_test(X_test, gbm)
+                                  1] = self.predict_on_test(X_test_, gbm)
 
                 index += 1
             self.i += 1

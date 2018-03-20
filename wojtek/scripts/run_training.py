@@ -3,7 +3,7 @@ import os
 from argparse import ArgumentParser
 
 import keras
-import keras_models
+import keras_models_selected
 import numpy as np
 import pandas as pd
 import utils
@@ -70,15 +70,15 @@ run_seed = 1337
 
 lstm_units = 128
 dropout_rate = 0.20
-learning_rate = 5e-4
+learning_rate = 1e-3
 character_level = False
 bidirectional = True
 
 max_features = 200000
 max_features_k = int(max_features / 1e3)
-sequence_length = 160
-embedding_dim = 200
-embedding_type = 'Glove'
+sequence_length = 320
+embedding_dim = 300
+embedding_type = 'FastText2'
 random_init = False
 
 
@@ -92,11 +92,11 @@ run_prefix = '{}_{}_KFold{}_{}_'.format(
 if bidirectional and 'LSTM' in args.model_name or bidirectional and 'GRU' in args.model_name:
     run_prefix = 'Bidirectional{}'.format(run_prefix)
 if args.kfold_run:
-    general_run_name = '{}{}fold_BS{}_{}'.format(
-        run_prefix, n_folds, args.batch_size, args.optimizer)
+    general_run_name = '{}{}fold_BS{}_{}{}'.format(
+        run_prefix, n_folds, args.batch_size, args.optimizer, learning_rate)
 else:
-    general_run_name = '{}{}bag_BS{}_{}'.format(
-        run_prefix, n_bags, args.batch_size, args.optimizer)
+    general_run_name = '{}{}bag_BS{}_{}{}'.format(
+        run_prefix, n_bags, args.batch_size, args.optimizer, learning_rate)
 
 
 if args.importance:
@@ -175,9 +175,9 @@ model_parameters = {
 }
 
 pipeline_parameters = {
-    'model_name': getattr(keras_models, args.model_name),
+    'model_name': getattr(keras_models_selected, args.model_name),
     'predict_test': True,
-    'number_epochs': 12,
+    'number_epochs': 15,
     'batch_size': args.batch_size,
     'seed': run_seed,
     'shuffle': True,
